@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CloudLedger: cloud bill as a cost sheet</title>
+<style>
+:root{--bg:#f4f6f5;--card:#fff;--tx:#17201c;--mu:#5d6b64;--bd:#d9e0dc;--ac:#0d5c63;--hi:#e6f1f1;--bad:#b42318;--ok:#067647}
+@media(prefers-color-scheme:dark){:root{--bg:#121816;--card:#1a2220;--tx:#e6ece9;--mu:#9baba3;--bd:#2c3935;--ac:#5cc7cf;--hi:#1d302f;--bad:#ff8f84;--ok:#62d9a3}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 Georgia,"Times New Roman",serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:28px;margin:8px 0 2px}h2{font-size:20px;margin:0 0 4px;color:var(--ac)}
+p.sub{margin:0 0 18px;color:var(--mu)}
+section{background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:16px;margin-bottom:18px}
+.note{color:var(--mu);font-size:13px;margin:0 0 10px}
+table{border-collapse:collapse;width:100%;font:13.5px system-ui,sans-serif}
+th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:var(--hi);font-weight:600}
+.wrap{overflow-x:auto}
+textarea{width:100%;height:170px;font:13px ui-monospace,Consolas,monospace;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:8px}
+input[type=number]{width:90px;font:13px system-ui;padding:3px 5px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:3px;text-align:right}
+.tag{padding:1px 7px;border-radius:9px;font:12px system-ui;background:var(--hi)}
+.bad{color:var(--bad);font-weight:600}.ok{color:var(--ok);font-weight:600}
+.err{background:var(--hi);border-left:4px solid var(--bad);padding:8px 12px;margin:8px 0;font:13.5px system-ui}
+.big{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+.big div{flex:1 1 200px;border:1px solid var(--bd);border-radius:4px;padding:10px;font:13px system-ui}
+.big b{display:block;font:600 22px Georgia,serif;color:var(--ac)}
+button{font:14px system-ui;padding:7px 14px;border:1px solid var(--ac);background:var(--ac);color:var(--card);border-radius:4px;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--ac);outline-offset:1px}
+</style></head><body><main>
+<h1>CloudLedger</h1>
+<p class="sub">A cloud bill turned into a cost sheet: classify, apportion, cost per user, break-even price, budget alert. Pick an example or edit any input; every table updates.</p>
+
+<section><h2>Part 1: Classify the bill</h2>
+<p class="note">Load: <select id="pre" aria-label="Example"><option value="cloud">Cloud bill (our sample)</option><option value="denim">Class example: Stitching, Finishing, Canteen</option><option value="ex">Classroom exercise: Dept A, B, X</option><option value="bottle">Class example: steel water bottles (BEP)</option></select></p>
+<p class="note">Cost lines: service, amount, centre, driver. A centre name means <b>direct</b> (allocated). No centre means <b>indirect</b>, shared on the driver.</p>
+<textarea id="csv" spellcheck="false" aria-label="Cost lines"></textarea>
+<p class="note">Driver units per centre (first row names the centres):</p>
+<textarea id="drv" spellcheck="false" style="height:90px" aria-label="Drivers"></textarea>
+<p class="note">Service centre re-apportionment, one line each: service centre, target:ratio, target:ratio. Leave empty if none.</p>
+<textarea id="svc" spellcheck="false" style="height:44px" aria-label="Re-apportionment"></textarea>
+<p class="note">Absorption basis (a driver name, optional): <input id="abs" type="text" style="width:160px" aria-label="Absorption basis"></p>
+<div id="err"></div><div class="wrap" id="cls"></div></section>
+<section><h2>Part 2: Apportion, re-apportion, absorb</h2>
+<p class="note">Share = cost × (centre units ÷ total units). A service centre's total is then re-apportioned to the production centres.</p>
+<div class="wrap" id="app"></div></section>
+<section><h2>Part 3: Cost per user, break-even and budget</h2>
+<p class="note">Needs a driver named <b>users</b>. Fixed cost = total cost − (variable cost per user × users).</p>
+<div class="wrap"><table id="prod"></table></div><div class="wrap" id="res"></div><div class="big" id="kpi"></div></section>
+<section><h2>Self-checks</h2><div id="chk"></div></section>
+<p class="note">Built with an AI coding assistant (declared as required). Every figure is computed in this file; no internet needed.</p>
+</main><script>
+const C0=`service,amount,centre,driver
+EC2 - WebApp,40000,WebApp,
+EC2 - MobileAPI,30000,MobileAPI,
+RDS - WebApp,20000,WebApp,
+RDS - MobileAPI,30000,MobileAPI,
+Load Balancer,10000,,users
+Monitoring,6000,,users
+Support Plan,12000,,compute
+CDN and Data Transfer,8000,,storage`;
+const PRE={cloud:{c:C0,d:`driver,WebApp,MobileAPI\nusers,600,400\ncompute,3000,1000\nstorage,200,300`,s:'',a:'',p:{WebApp:[50,200,78000,0],MobileAPI:[60,250,65000,0]}},
+denim:{c:`service,amount,centre,driver\nMaintenance contract,15000,Stitching,\nElectricity,30000,,Electrical points\nCanteen cost,15000,Canteen,`,d:`driver,Stitching,Finishing,Canteen\nElectrical points,15,10,5\nEmployees,30,10,0\nLabour hours,300,150,0`,s:'Canteen,Stitching:30,Finishing:10',a:'Labour hours',p:{}},
+ex:{c:`service,amount,centre,driver\nIndirect wages,3000,X,\nFactory rent,10000,,Floor area\nElectric power,6000,,Horse power\nDepreciation,4000,,Value of machinery`,d:`driver,A,B,X\nFloor area,400,300,300\nHorse power,30,20,10\nValue of machinery,50000,30000,20000\nMachine hours,1000,500,0`,s:'X,A:6,B:4',a:'Machine hours',p:{}},
+bottle:{c:`service,amount,centre,driver\nFixed costs,300000,Bottles,\nVariable costs (1600 x 300),480000,Bottles,`,d:`driver,Bottles\nusers,1600`,s:'',a:'',p:{Bottles:[300,500,0,60000]}}};
+let PAR={};
+const $=id=>document.getElementById(id);
+const q=n=>(+n).toLocaleString('en-IN',{maximumFractionDigits:2}),f=n=>'₹'+q(n);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const L=id=>$(id).value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+const ALERT=10;
+function load(k){const p=PRE[k];$('csv').value=p.c;$('drv').value=p.d;$('svc').value=p.s;$('abs').value=p.a;PAR=JSON.parse(JSON.stringify(p.p));calc()}
+function model(){
+  const er=[],dl=L('drv'),H=dl[0]?dl[0].split(',').map(x=>x.trim()):[],cen=H.slice(1),D={};
+  dl.slice(1).forEach((l,i)=>{const a=l.split(',').map(x=>x.trim());const u=a.slice(1).map(x=>parseFloat(x)||0);
+    if(u.length!==cen.length)er.push(`Driver row ${i+2}: needs ${cen.length} numbers.`);else D[a[0]]=u});
+  const rows=[];L('csv').slice(1).forEach((l,i)=>{const [s,a,c,d]=l.split(',').map(x=>(x||'').trim()),amt=parseFloat(a),n=i+2;
+    if(!s||!(amt>0))er.push(`Cost line ${n}: needs a name and a positive amount.`);
+    else if(c&&!cen.includes(c))er.push(`Cost line ${n} (${esc(s)}): centre "${esc(c)}" is not in the driver table.`);
+    else if(!c&&!D[d])er.push(`Cost line ${n} (${esc(s)}): driver "${esc(d)}" is not in the driver table.`);
+    else rows.push({s,amt,c,d})});
+  const sv=[];L('svc').forEach((l,i)=>{const a=l.split(',').map(x=>x.trim()),t=a.slice(1).map(x=>x.split(':'));
+    if(!cen.includes(a[0])||!t.length||t.some(x=>!cen.includes(x[0].trim())||!(parseFloat(x[1])>0)))er.push(`Re-apportionment line ${i+1}: use  centre, target:ratio, target:ratio  with centres from the driver table.`);
+    else sv.push({f:a[0],t:t.map(x=>[x[0].trim(),parseFloat(x[1])])})});
+  return {er,cen,D,rows,sv}}
+function calc(){
+  const {er,cen,D,rows,sv}=model();
+  $('err').innerHTML=er.map(e=>`<div class="err">${e}</div>`).join('');
+  if(er.length||!rows.length){['cls','app','res','kpi','chk','prod'].forEach(i=>$(i).innerHTML='');return}
+  const bill=rows.reduce((t,r)=>t+r.amt,0),T=cen.map(()=>0),svs=sv.map(x=>x.f);
+  $('cls').innerHTML='<table><tr><th>Service</th><th>Amount</th><th>Class</th><th>Charged to / driver</th></tr>'+rows.map(r=>`<tr><td>${esc(r.s)}</td><td>${f(r.amt)}</td><td><span class="tag">${r.c?'Direct':'Indirect'}</span></td><td>${esc(r.c||r.d)}</td></tr>`).join('')+`<tr><th>Total</th><th>${f(bill)}</th><th></th><th></th></tr></table>`;
+  let h='<table><tr><th>Cost</th>'+cen.map(c=>`<th>${esc(c)}${svs.includes(c)?' (service)':''}</th>`).join('')+'<th>Total</th></tr>';
+  rows.forEach(r=>{const cells=cen.map((c,i)=>{if(r.c){const v=r.c===c?r.amt:0;T[i]+=v;return v?f(v):'-'}
+    const u=D[r.d],tot=u.reduce((a,b)=>a+b,0),v=tot?r.amt*u[i]/tot:0;T[i]+=v;return `${q(r.amt)} × ${q(u[i])}/${q(tot)} = <b>${f(v)}</b>`});
+    h+=`<tr><td>${esc(r.s)}${r.c?' (allocated)':' (on '+esc(r.d)+')'}</td>`+cells.map(x=>`<td>${x}</td>`).join('')+`<td>${f(r.amt)}</td></tr>`});
+  h+='<tr><th>Total primary overheads (1st step)</th>'+T.map(v=>`<th>${f(v)}</th>`).join('')+`<th>${f(T.reduce((a,b)=>a+b,0))}</th></tr>`;
+  sv.forEach(x=>{const fi=cen.indexOf(x.f),amt=T[fi],sum=x.t.reduce((a,b)=>a+b[1],0),mv=cen.map(()=>0);
+    mv[fi]=-amt;x.t.forEach(([c,r])=>mv[cen.indexOf(c)]+=amt*r/sum);mv.forEach((v,i)=>T[i]+=v);
+    h+=`<tr><td>Re-apportion ${esc(x.f)} (${x.t.map(t=>t.join(':')).join(' : ')})</td>`+mv.map(v=>`<td>${v?f(v):'-'}</td>`).join('')+'<td>0</td></tr>'});
+  h+='<tr><th>Final overheads (3rd step)</th>'+T.map(v=>`<th>${f(v)}</th>`).join('')+`<th>${f(T.reduce((a,b)=>a+b,0))}</th></tr>`;
+  const ab=$('abs').value.trim(),A=D[ab];
+  if(A)h+=`<tr><td>${esc(ab)}</td>`+A.map((u,i)=>`<td>${svs.includes(cen[i])?'-':q(u)}</td>`).join('')+'<td></td></tr><tr><th>Absorption rate per '+esc(ab)+' (4th step)</th>'+A.map((u,i)=>`<th>${svs.includes(cen[i])||!u?'-':f(T[i]/u)}</th>`).join('')+'<th></th></tr>';
+  $('app').innerHTML=h+'</table>';
+  const prod=cen.map((c,i)=>i).filter(i=>!svs.includes(cen[i])),U=D.users;
+  if(!U){$('prod').innerHTML='';$('res').innerHTML='<p class="note">Add a driver named "users" to see Part 3.</p>';$('kpi').innerHTML=''}
+  else{
+    if(!$('prod').innerHTML)drawPar(cen,prod);
+    const R=prod.map(i=>{const c=cen[i],[v,p,b,tp]=PAR[c]||[0,0,0,0],u=U[i],t=T[i],fx=t-v*u;
+      return {tp:tp||0,c,u,t,cpu:u?t/u:0,v,p,b,fx,con:p-v,bp:u?fx/u+v:0,bu:p>v?Math.ceil(fx/(p-v)):NaN,pr:u*(p-v)-fx,vr:t-b,pc:b?(t-b)/b*100:0}});
+    const rw=(l,fn)=>`<tr><td>${l}</td>`+R.map(r=>`<td>${fn(r)}</td>`).join('')+'</tr>';
+    $('res').innerHTML='<table><tr><th>Item</th>'+R.map(r=>`<th>${esc(r.c)}</th>`).join('')+'</tr>'+rw('Total cost',r=>f(r.t))+rw('Users',r=>q(r.u))+rw('<b>Cost per user</b>',r=>'<b>'+f(r.cpu)+'</b>')+
+      rw('Fixed cost = total − variable',r=>f(r.fx))+rw('Contribution per user',r=>f(r.con))+rw('<b>BEP price</b> = F÷users + V',r=>'<b>'+f(r.bp)+'</b>')+
+      rw('BEP users = F ÷ contribution',r=>isNaN(r.bu)?'<span class="bad">price ≤ variable cost</span>':q(r.bu)+' users')+rw('BEP sales (₹)',r=>isNaN(r.bu)?'-':f(r.bu*r.p))+rw('Margin of safety',r=>isNaN(r.bu)?'-':q(r.u-r.bu)+' units ('+((r.u-r.bu)/r.u*100).toFixed(1)+'%)')+rw('Units for target profit',r=>r.tp&&r.p>r.v?q(Math.ceil((r.fx+r.tp)/r.con))+' units, '+f(Math.ceil((r.fx+r.tp)/r.con)*r.p):'-')+rw('Profit at current users',r=>`<span class="${r.pr<0?'bad':'ok'}">${f(r.pr)}</span>`)+
+      rw('Variance (actual − budget)',r=>r.b?f(r.vr)+(r.vr>0?' adverse':' favourable'):'-')+rw('Budget alert (limit '+ALERT+'%)',r=>r.b?(r.pc>ALERT?`<span class="bad">ALERT: ${r.pc.toFixed(1)}% over</span>`:`<span class="ok">OK (${r.pc.toFixed(1)}%)</span>`):'no budget')+'</table>';
+    const top=[...R].sort((a,b)=>b.cpu-a.cpu)[0];
+    $('kpi').innerHTML=`<div>Costliest per user<b>${esc(top.c)}</b>${f(top.cpu)} per user</div>`+R.map(r=>`<div>${esc(r.c)}: minimum price<b>${f(r.bp)}</b>to break even at ${q(r.u)} users</div>`).join('')}
+  const fin=T.reduce((a,b)=>a+b,0),ok=(c,t)=>`<p>${c?'<span class="ok">✓</span>':'<span class="bad">✗</span>'} ${t}</p>`;
+  $('chk').innerHTML=ok(Math.abs(fin-bill)<0.01,`Final overheads (${f(fin)}) equal the total bill (${f(bill)}).`)+ok(svs.every(c=>Math.abs(T[cen.indexOf(c)])<0.01),'Every service centre is cleared to zero after re-apportionment.');
+}
+function drawPar(cen,prod){
+  $('prod').innerHTML='<tr><th>Product</th><th>Variable ₹/user</th><th>Price ₹/user</th><th>Budget ₹</th><th>Target profit ₹</th></tr>'+prod.map(i=>{const c=cen[i],a=PAR[c]||(PAR[c]=[0,0,0,0]);
+    return `<tr><td>${esc(c)}</td>`+[0,1,2,3].map(k=>`<td><input type="number" min="0" value="${a[k]}" data-c="${esc(c)}" data-k="${k}" aria-label="${esc(c)} input ${k}"></td>`).join('')+'</tr>'}).join('');
+  $('prod').querySelectorAll('input').forEach(el=>el.oninput=()=>{PAR[el.dataset.c][el.dataset.k]=Math.max(0,parseFloat(el.value)||0);calc()})}
+['csv','svc','abs'].forEach(i=>$(i).oninput=calc);
+$('drv').oninput=()=>{$('prod').innerHTML='';calc()};
+$('pre').onchange=()=>{$('prod').innerHTML='';load($('pre').value)};
+load('cloud');
+</script></body></html>
