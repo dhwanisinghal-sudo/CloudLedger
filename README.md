@@ -1,8 +1,5 @@
 # CloudLedger: your cloud bill as a cost sheet
 
-FCA IA2, Project 13. Dhwani Singhal (16015024056), Palak Kumar (16015024036).
-Modules M3, M4, M5. COs CO3, CO4.
-
 ## Run it
 Download `CloudLedger.html` and open it in any browser. No internet or install needed.
 Pick an example from the dropdown, or edit any box; every table updates.
