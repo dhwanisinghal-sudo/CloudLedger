@@ -18,5 +18,3 @@ Pick an example from the dropdown, or edit any box; every table updates.
 - `CloudLedger.html`: the tool and its source code
 - `CloudLedger_Slides.pdf`: presentation slides
 - `CloudLedger_Report.pdf`: report with syllabus mapping and verified problems
-
-An AI coding assistant helped write the code (declared).
